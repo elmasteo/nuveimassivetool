@@ -188,7 +188,7 @@
               issuerCountry: response.issuerCountry || "NO",
             };
 
-            log(`✅ Row ${index + 2}: Transaction ${result.uniqueCC}, CardType: ${result.cardType} , issuerCountry: ${result.issuerCountry}`);
+            log(`✅ Row ${index + 2}: UniqueCC: ${result.uniqueCC}, CardType: ${result.cardType} , issuerCountry: ${result.issuerCountry}`);
             results.push(result);
 
           } catch (err) {

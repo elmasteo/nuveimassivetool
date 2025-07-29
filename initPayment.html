@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nuvei Card Tester</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" type="text/css" href="styles.css">
+  
+</head>
+<body>
+  <div class="logo-wrapper">
+    <img src="https://cdn.paymentez.com/img/nv/nuvei_logo.png" alt="Nuvei Logo" />
+  </div>
+
+  <!-- Barra de tabs alineada con el contenedor -->
+  <div class="tab-wrapper">
+    <ul>
+      <li><a class="index" href="index.html">Payment</a></li>
+      <li><a class="initPayment" href="initPayment.html">initPayment</a></li>
+      <li><a class="cardTokenization" href="cardTokenization.html">cardTokenization</a></li>
+    </ul>
+  </div>
+
+  <div class="container">
+    <div class="form-section">
+      <h2>Configuration Details - InitPayment</h2>
+      <form id="configForm">
+        <label for="baseUrl">Base URL:</label>
+        <select id="baseUrl" required>
+          <option value="https://ppp-test.nuvei.com/ppp/api/v1">https://ppp-test.nuvei.com</option>
+          <option value="https://nuvei.com/ppp/api/v1">https://nuvei.com</option>
+        </select>
+
+        <label for="merchant_secret_key">Merchant Secret Key:</label>
+        <input type="password" id="merchant_secret_key" required />
+
+        <label for="merchant_id">Merchant ID:</label>
+        <input type="text" id="merchant_id" required />
+
+        <label for="merchant_site_id">Merchant Site ID:</label>
+        <input type="text" id="merchant_site_id" required />
+
+        <label for="data">Excel file(.xlsx):</label>
+        <input type="file" id="data" accept=".xlsx" required />
+
+        <button type="submit">Submit</button>
+      </form>
+    </div>
+
+    <div class="log-section">
+      <h2>Log</h2>
+      <div id="logBox" class="log"></div>
+    </div>
+  </div>
+
+  
+<script>
+  const pathname = window.location.pathname;
+  let path = pathname.substring(pathname.lastIndexOf('/') + 1).replace('.html', '');
+
+  if (path === '') path = 'index';
+
+  document.querySelectorAll('ul li a').forEach(link => {
+    if (link.dataset.tab === path) {
+      link.classList.add('active');
+    }
+  });
+</script>
+
+  <script>
+    const logBox = document.getElementById("logBox");
+    const log = msg => {
+      const entry = document.createElement("div");
+      entry.textContent = msg;
+      logBox.appendChild(entry);
+      logBox.scrollTop = logBox.scrollHeight;
+    };
+
+    const form = document.getElementById("configForm");
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      logBox.innerHTML = ''; // Limpiar log
+
+      const baseUrl = document.getElementById("baseUrl").value;
+      const merchant_id = document.getElementById("merchant_id").value;
+      const merchant_site_id = document.getElementById("merchant_site_id").value;
+      const merchant_secret_key = document.getElementById("merchant_secret_key").value;
+      const fileInput = document.getElementById("data");
+
+      const client_request_id = Math.floor(Math.random() * 1e18).toString();
+      const file = fileInput.files[0];
+      if (!file) return alert("Por favor selecciona un archivo Excel.");
+
+      const reader = new FileReader();
+
+      reader.onload = async function () {
+        const arrayBuffer = reader.result;
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { raw: true });
+
+        function padZero(v) {
+          return v.toString().padStart(2, "0");
+        }
+
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${padZero(now.getMonth() + 1)}${padZero(now.getDate())}${padZero(now.getHours())}${padZero(now.getMinutes())}${padZero(now.getSeconds())}`;
+        const checksum = CryptoJS.SHA256(merchant_id + merchant_site_id + client_request_id + timestamp + merchant_secret_key).toString();
+
+        const results = [];
+
+        async function delay(ms) {
+          return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function processRow(row, index) {
+          const cardNumber = row.first + row.middle + row.last;
+          const headers = { "Content-Type": "application/json" };
+
+          const rawTokenRequest = {
+            merchantId: merchant_id,
+            merchantSiteId: merchant_site_id,
+            clientRequestId: client_request_id,
+            timeStamp: timestamp,
+            checksum: checksum
+          };
+
+          try {
+            log(`🟡 Row ${index + 2}: Get sessionToken...`);
+            const sessionRes = await fetch(`${baseUrl}/getSessionToken.do`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(rawTokenRequest)
+            });
+
+            const sessionData = await sessionRes.json();
+
+            if (sessionData.status !== "SUCCESS") {
+              log(`❌ Fila ${index + 2}: Error de sesión → ${sessionData.reason}`);
+              return;
+            }
+
+            const sessionToken = sessionData.sessionToken;
+            const amount = 10;
+            const currency = "USD";
+
+            const paymentPayload = {
+              "merchantSiteId": merchant_site_id,
+              "merchantId": merchant_id,
+              sessionToken,
+              "clientRequestId": client_request_id,
+              currency,
+              amount,
+              "userTokenId": client_request_id,
+              "paymentOption": {
+              "card": {
+                "cardNumber": cardNumber,
+                "cardHolderName": "FL-BRW1",
+                "expirationMonth": "12",
+                "expirationYear": "33",
+                "CVV": "217",
+                "threeD": {
+                  "methodNotificationUrl": "https://hkdk.events/y8uwj3x0mf2ba8"
+                   }
+                  }
+                }
+              };
+
+            log(`🟡 Row ${index + 2}: Execution of card ends with: ${cardNumber.slice(-4)}...`);
+
+            const paymentRes = await fetch(`${baseUrl}/initPayment.do`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(paymentPayload)
+            });
+
+            const response = await paymentRes.json();
+
+            const result = {
+              transactionId: response.transactionId || "NO",
+              transactionStatus: response.transactionStatus || "NO",
+              cardType: response.paymentOption?.card?.cardType || "NO",
+              isPrepaid: response.paymentOption?.card?.isPrepaid || "NO",
+              last4Digits: response.paymentOption?.card?.last4Digits || "NO",
+              gwErrorReason: response.gwErrorReason || "NO"
+            };
+
+            log(`✅ Row ${index + 2}: Transaction ${result.transactionStatus}, CardType: ${result.cardType}`);
+            results.push(result);
+
+          } catch (err) {
+            log(`❌ Row ${index + 2}: Error → ${err.message}`);
+          }
+
+          await delay(500);
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+          await processRow(rows[i], i);
+        }
+
+        if (results.length) {
+          const newWB = XLSX.utils.book_new();
+          const newWS = XLSX.utils.json_to_sheet(results);
+          XLSX.utils.book_append_sheet(newWB, newWS, "ResultsInitPayment");
+          XLSX.writeFile(newWB, "output_all_rows_init_payment.xlsx");
+          log("🟢 Execution Completed! Excel generated.");
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+  </script>
+</body>
+</html>

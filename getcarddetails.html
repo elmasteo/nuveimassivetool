@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+  <title>Nuvei Card Tester - getCardDetails</title>
+  <link rel="icon" href="https://docs.nuvei.com/wp-content/themes/manual-child/img/favicons/cropped-favicon-nuvei-32x32.png" sizes="32x32">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" type="text/css" href="styles.css">
+</head>
+
+<body>
+
+<div class="logo-wrapper">
+    <img src="https://cdn.paymentez.com/img/nv/nuvei_logo.png" alt="Nuvei Logo">
+</div>
+
+<div class="tab-wrapper">
+    <ul>
+      <li><a class="index" href="index.html" data-tab="index">Payment</a></li>
+      <li><a class="initpayment" href="initpayment.html" data-tab="initpayment">initPayment</a></li>
+      <li><a class="cardtokenization" href="cardtokenization.html" data-tab="cardtokenization">cardTokenization</a></li>
+      <li><a class="getcarddetails" href="getcarddetails.html" data-tab="getcarddetails">getCardDetails</a></li>
+    </ul>
+  </div>
+
+<div class="container">
+
+    <!-- FORM -->
+    <div class="form-section">
+        <h2>Configuration Details - GetCardDetails</h2>
+        <a href="cards-test.xlsx" download class="download-btn">Download format</a>
+        <label>Environment:</label>
+        <select id="env">
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+        </select>
+
+        <label>Merchant Secret Key:</label>
+        <input type="password" id="merchantSecretKey" />
+
+        <label>Merchant ID:</label>
+        <input type="text" id="merchantId" />
+
+        <label>Merchant Site ID:</label>
+        <input type="text" id="merchantSiteId" />
+
+        <label>Excel file (.xlsx):</label>
+        <input type="file" id="data" accept=".xlsx" />
+
+        <button id="submitBtn" disabled>
+            Submit
+        </button>
+
+        <div id="progress" style="display:none;">
+            <div id="spinner"></div>
+            <p id="progressText">Processing...</p>
+            <progress id="progressBar" value="0"></progress>
+        </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="log-section">
+        <h2>Log</h2>
+        <div id="logBox" class="log"></div>
+    </div>
+
+</div>
+
+
+<script>
+  const pathname = window.location.pathname;
+  let path = pathname.substring(pathname.lastIndexOf('/') + 1).replace('.html', '');
+
+  if (path === '') path = 'index';
+
+  document.querySelectorAll('ul li a').forEach(link => {
+    if (link.dataset.tab === path) {
+      link.classList.add('active');
+    }
+  });
+</script>
+
+<script type="text/javascript">
+/* ========================
+   Helpers
+======================== */
+function padZero(v) {
+    return v.toString().padStart(2, '0');
+}
+
+function delay(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+function flattenObject(obj, parentKey = '', result = {}) {
+    for (const key in obj) {
+        if (!obj.hasOwnProperty(key)) continue;
+        const newKey = parentKey ? `${parentKey}.${key}` : key;
+
+        if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+            flattenObject(obj[key], newKey, result);
+        } else {
+            result[newKey] = Array.isArray(obj[key]) ? JSON.stringify(obj[key]) : obj[key];
+        }
+    }
+    return result;
+}
+
+function getEndpoints(env) {
+    return env === 'production'
+        ? {
+            session: 'https://secure.safecharge.com/ppp/api/v1/getSessionToken.do',
+            card: 'https://secure.safecharge.com/ppp/api/v1/getCardDetails.do'
+        }
+        : {
+            session: 'https://ppp-test.nuvei.com/ppp/api/v1/getSessionToken.do',
+            card: 'https://ppp-test.nuvei.com/ppp/api/v1/getCardDetails.do'
+        };
+}
+
+/* ========================
+   Logger
+======================== */
+const logBox = document.getElementById("logBox");
+
+function log(msg) {
+    const div = document.createElement("div");
+    div.textContent = msg;
+    logBox.appendChild(div);
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+/* ========================
+   State
+======================== */
+let loadedFile = null;
+let parsedRows = [];
+
+/* ========================
+   File load (ONLY load)
+======================== */
+document.getElementById('data').addEventListener('change', function () {
+
+    loadedFile = this.files[0];
+    parsedRows = [];
+
+    if (!loadedFile) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function () {
+        const workbook = XLSX.read(this.result, { type: "array" });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        parsedRows = XLSX.utils.sheet_to_json(worksheet, { raw: true });
+
+        log(`📄 File loaded: ${loadedFile.name}`);
+        log(`▶ Rows detected: ${parsedRows.length}`);
+
+        document.getElementById('submitBtn').disabled = parsedRows.length === 0;
+    };
+
+    reader.readAsArrayBuffer(loadedFile);
+});
+
+/* ========================
+   Submit (PROCESS)
+======================== */
+document.getElementById('submitBtn').addEventListener('click', async function () {
+
+    const merchant_id = document.getElementById('merchantId').value.trim();
+    const merchant_site_id = document.getElementById('merchantSiteId').value.trim();
+    const merchant_secret_key = document.getElementById('merchantSecretKey').value.trim();
+    const env = document.getElementById('env').value;
+
+    if (!merchant_id || !merchant_site_id || !merchant_secret_key) {
+        alert('Fill all the fields!!');
+        return;
+    }
+
+    if (!parsedRows.length) {
+        alert('No file loaded');
+        return;
+    }
+
+    this.disabled = true;
+    log(`▶ Environment: ${env}`);
+    log(`▶ Processing started`);
+
+    const endpoints = getEndpoints(env);
+
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${padZero(now.getMonth()+1)}${padZero(now.getDate())}${padZero(now.getHours())}${padZero(now.getMinutes())}${padZero(now.getSeconds())}`;
+    const client_request_id = merchant_id;
+
+    const checksum = CryptoJS.SHA256(
+        merchant_id +
+        merchant_site_id +
+        client_request_id +
+        timestamp +
+        merchant_secret_key
+    ).toString();
+
+    const excelData = [];
+
+    const progressDiv = document.getElementById('progress');
+    const progressText = document.getElementById('progressText');
+    const progressBar = document.getElementById('progressBar');
+
+    progressDiv.style.display = 'block';
+    progressBar.max = parsedRows.length;
+    progressBar.value = 0;
+
+    async function processRow(row, index) {
+
+        const cardNumber = String(row.cardNumber || '').replace(/\D/g, '');
+
+        log(`🟡 Row ${index + 2}: ****${cardNumber.slice(-4) || 'XXXX'}`);
+
+        if (cardNumber.length < 13 || cardNumber.length > 19) {
+            log(`❌ Row ${index + 2}: Invalid card`);
+            excelData.push({ error: 'Invalid card number', input_cardNumber: cardNumber });
+            return;
+        }
+
+        try {
+            const sessionResponse = await fetch(endpoints.session, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    merchantId: merchant_id,
+                    merchantSiteId: merchant_site_id,
+                    clientRequestId: client_request_id,
+                    timeStamp: timestamp,
+                    checksum: checksum
+                })
+            });
+
+            const sessionResult = await sessionResponse.json();
+
+            if (sessionResult.status !== 'SUCCESS') {
+                log(`❌ Row ${index + 2}: Session error`);
+                excelData.push({ error: 'Session error', raw: JSON.stringify(sessionResult) });
+                return;
+            }
+
+            const paymentResponse = await fetch(endpoints.card, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionToken: sessionResult.sessionToken,
+                    merchantId: merchant_id,
+                    merchantSiteId: merchant_site_id,
+                    clientRequestId: client_request_id,
+                    clientUniqueId: client_request_id,
+                    cardNumber: cardNumber
+                })
+            });
+
+            const apiResponse = await paymentResponse.json();
+            const flattened = flattenObject(apiResponse);
+            flattened.input_cardNumber = cardNumber;
+            excelData.push(flattened);
+
+            log(`✅ Row ${index + 2}: OK`);
+
+        } catch (err) {
+            log(`❌ Row ${index + 2}: ${err.message}`);
+            excelData.push({ error: err.message, input_cardNumber: cardNumber });
+        }
+
+        progressBar.value++;
+        progressText.textContent = `Processing ${progressBar.value} of ${parsedRows.length}`;
+        await delay(200);
+    }
+
+    for (let i = 0; i < parsedRows.length; i++) {
+        await processRow(parsedRows[i], i);
+    }
+
+    const newWorkbook = XLSX.utils.book_new();
+    const newWorksheet = XLSX.utils.json_to_sheet(excelData);
+    XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Results");
+    XLSX.writeFile(newWorkbook, 'output_all_rows.xlsx');
+
+    log(`🏁 Execution complete`);
+    progressText.textContent = 'Execution Complete';
+
+    setTimeout(() => {
+        progressDiv.style.display = 'none';
+        document.getElementById('submitBtn').disabled = false;
+    }, 1500);
+});
+</script>
+
+</body>
+</html>

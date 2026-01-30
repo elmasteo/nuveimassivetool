@@ -21,6 +21,7 @@
       <li><a class="index" href="index.html" data-tab="index">Payment</a></li>
       <li><a class="initpayment" href="initpayment.html" data-tab="initpayment">initPayment</a></li>
       <li><a class="cardtokenization" href="cardtokenization.html" data-tab="cardtokenization">cardTokenization</a></li>
+      <li><a class="getcarddetails" href="getcarddetails.html" data-tab="getcarddetails">getcarddetails</a></li>
     </ul>
   </div>
 
@@ -29,10 +30,10 @@
       <h2>Configuration Details - Card Tokenization</h2>
       <a href="cards-test.xlsx" download class="download-btn">Download format</a>
       <form id="configForm">
-        <label for="baseUrl">Base URL:</label>
+        <label for="baseUrl">Environment:</label>
         <select id="baseUrl" required>
-          <option value="https://ppp-test.nuvei.com/ppp/api/v1">https://ppp-test.nuvei.com</option>
-          <option value="https://nuvei.com/ppp/api/v1">https://nuvei.com</option>
+          <option value="https://ppp-test.nuvei.com/ppp/api/v1">Sandbox</option>
+          <option value="https://nuvei.com/ppp/api/v1">Production</option>
         </select>
 
         <label for="merchant_secret_key">Merchant Secret Key:</label>
@@ -118,8 +119,26 @@
           return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        function flattenObject(obj, parentKey = '', result = {}) {
+        for (const key in obj) {
+          if (!obj.hasOwnProperty(key)) continue;
+
+          const newKey = parentKey ? `${parentKey}.${key}` : key;
+
+          if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+            flattenObject(obj[key], newKey, result);
+          } else {
+            result[newKey] = Array.isArray(obj[key])
+              ? JSON.stringify(obj[key])
+              : obj[key];
+          }
+        }
+        return result;
+      }
+
+
         async function processRow(row, index) {
-          const cardNumber = row.first + row.middle + row.last;
+          const cardNumber = String(row.cardNumber).replace(/\D/g, '');
           const headers = { "Content-Type": "application/json" };
 
           const rawTokenRequest = {
@@ -180,16 +199,17 @@
 
             const response = await paymentRes.json();
 
-            const result = {
-              ccTempToken: response.ccTempToken || "NO",
-              uniqueCC: response.uniqueCC || "NO",
-              cardType: response.cardType || "NO",
-              internalRequestId: response.isPrepaid || "NO",
-              issuerCountry: response.issuerCountry || "NO",
-            };
+            const flattenedResponse = flattenObject(response);
 
-            log(`✅ Row ${index + 2}: UniqueCC: ${result.uniqueCC}, CardType: ${result.cardType} , issuerCountry: ${result.issuerCountry}`);
-            results.push(result);
+            // opcional: conservar contexto de entrada
+            flattenedResponse.input_cardNumber = cardNumber;
+            flattenedResponse.input_row = index + 2;
+
+            log(
+              `✅ Row ${index + 2}: Transaction ${response.transactionStatus || 'UNKNOWN'}`
+            );
+
+            results.push(flattenedResponse);
 
           } catch (err) {
             log(`❌ Row ${index + 2}: Error → ${err.message}`);

@@ -55,11 +55,6 @@
             Submit
         </button>
 
-        <div id="progress" style="display:none;">
-            <div id="spinner"></div>
-            <p id="progressText">Processing...</p>
-            <progress id="progressBar" value="0"></progress>
-        </div>
     </div>
 
     <!-- LOG -->
@@ -187,8 +182,6 @@ document.getElementById('submitBtn').addEventListener('click', async function ()
     }
 
     this.disabled = true;
-    log(`▶ Environment: ${env}`);
-    log(`▶ Processing started`);
 
     const endpoints = getEndpoints(env);
 
@@ -287,12 +280,6 @@ document.getElementById('submitBtn').addEventListener('click', async function ()
     XLSX.writeFile(newWorkbook, 'output_all_rows.xlsx');
 
     log(`🏁 Execution complete`);
-    progressText.textContent = 'Execution Complete';
-
-    setTimeout(() => {
-        progressDiv.style.display = 'none';
-        document.getElementById('submitBtn').disabled = false;
-    }, 1500);
 });
 </script>
 

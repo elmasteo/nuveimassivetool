@@ -199,13 +199,6 @@ document.getElementById('submitBtn').addEventListener('click', async function ()
 
     const excelData = [];
 
-    const progressDiv = document.getElementById('progress');
-    const progressText = document.getElementById('progressText');
-    const progressBar = document.getElementById('progressBar');
-
-    progressBar.max = parsedRows.length;
-    progressBar.value = 0;
-
     async function processRow(row, index) {
 
         const cardNumber = String(row.cardNumber || '').replace(/\D/g, '');

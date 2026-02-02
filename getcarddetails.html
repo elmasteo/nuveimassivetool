@@ -257,9 +257,6 @@ document.getElementById('submitBtn').addEventListener('click', async function ()
             excelData.push({ error: err.message, input_cardNumber: cardNumber });
         }
 
-        progressBar.value++;
-        progressText.textContent = `Processing ${progressBar.value} of ${parsedRows.length}`;
-        await delay(200);
     }
 
     for (let i = 0; i < parsedRows.length; i++) {
